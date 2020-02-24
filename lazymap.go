@@ -47,7 +47,11 @@ var ErrCtorNotProvided = errors.New("constructor not provided")
 // LoadOrCtor returns the value for the key if exist.
 // Otherwise, it will call the constructor and returns the its value.
 // If the constructor returns error, the value will not be stored in the cache.
-func (m *Map) LoadOrCtor(key interface{}, fn ctorFunc) (interface{}, error) {
+func (m *Map) LoadOrCtor(ctx context.Context, key interface{}, fn ctorFunc) (interface{}, error) {
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
 
 	if fn == nil {
 		return nil, ErrCtorNotProvided
@@ -68,7 +72,7 @@ func (m *Map) LoadOrCtor(key interface{}, fn ctorFunc) (interface{}, error) {
 	}
 
 	e := new(entity)
-	e.ctx, e.cacenl = context.WithCancel(context.Background())
+	e.ctx, e.cacenl = context.WithCancel(ctx)
 	e.wg.Add(1)
 	m.m[key] = e
 	m.mu.Unlock()

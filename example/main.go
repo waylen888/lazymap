@@ -26,7 +26,7 @@ func main() {
 	for i := 0; i < 10; i++ {
 		i := i
 		go func() {
-			v, err := m.LoadOrCtor("localhost:8080", constructor)
+			v, err := m.LoadOrCtor(context.Background(), "localhost:8080", constructor)
 			if err != nil {
 				fmt.Printf("LoadOrCtor err %v\n", err)
 				return

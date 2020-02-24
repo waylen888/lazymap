@@ -12,12 +12,13 @@ import (
 
 func Test_Zero(t *testing.T) {
 	var m lazymap.Map
+	m.LoadOrCtor(nil, nil, nil)
 	m.Delete("_")
 }
 
 func Test_NilCtor(t *testing.T) {
 	m := lazymap.New(time.Second)
-	o, err := m.LoadOrCtor("_", nil)
+	o, err := m.LoadOrCtor(context.Background(), "_", nil)
 	if err != lazymap.ErrCtorNotProvided {
 		t.Fatalf("%v is not ErrCtorNotProvided", err)
 	}
@@ -31,7 +32,7 @@ func Test_EndOfLifetime(t *testing.T) {
 	m.OnDelete = func(_, ch interface{}) {
 		ch.(chan struct{}) <- struct{}{}
 	}
-	ch, _ := m.LoadOrCtor("_", func(ctx context.Context, _ interface{}) (interface{}, error) {
+	ch, _ := m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ interface{}) (interface{}, error) {
 		return make(chan struct{}, 1), nil
 	})
 	select {
@@ -43,7 +44,7 @@ func Test_EndOfLifetime(t *testing.T) {
 
 func Test_DeleteValue(t *testing.T) {
 	m := lazymap.New(0)
-	val, _ := m.LoadOrCtor("_", func(ctx context.Context, _ interface{}) (interface{}, error) {
+	val, _ := m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ interface{}) (interface{}, error) {
 		return "value1", nil
 	})
 	if val != "value1" {
@@ -52,7 +53,7 @@ func Test_DeleteValue(t *testing.T) {
 
 	m.Delete("_")
 
-	val, _ = m.LoadOrCtor("_", func(ctx context.Context, _ interface{}) (interface{}, error) {
+	val, _ = m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ interface{}) (interface{}, error) {
 		return "value2", nil
 	})
 	if val != "value2" {
@@ -62,14 +63,14 @@ func Test_DeleteValue(t *testing.T) {
 
 func Test_LoadError(t *testing.T) {
 	m := lazymap.New(0)
-	val, err := m.LoadOrCtor("_", func(ctx context.Context, _ interface{}) (interface{}, error) {
+	val, err := m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ interface{}) (interface{}, error) {
 		return nil, errors.New("some error")
 	})
 	if err.Error() != "some error" {
 		t.Fatalf("unexpected error %v", err)
 	}
 
-	val, err = m.LoadOrCtor("_", func(ctx context.Context, _ interface{}) (interface{}, error) {
+	val, err = m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ interface{}) (interface{}, error) {
 		return "ok", nil
 	})
 
@@ -85,7 +86,7 @@ func Test_MultipleLoad(t *testing.T) {
 	}
 	for i := 0; i < 10; i++ {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			val, err := m.LoadOrCtor("_", ctor)
+			val, err := m.LoadOrCtor(context.Background(), "_", ctor)
 			if err != nil {
 				t.Fatal("LoadOrCtor error not nil")
 			}
