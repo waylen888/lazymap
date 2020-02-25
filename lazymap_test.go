@@ -97,3 +97,27 @@ func Test_MultipleLoad(t *testing.T) {
 	}
 	t.Parallel()
 }
+
+func Test_DeadlineExceeded(t *testing.T) {
+	m := lazymap.New(time.Millisecond * 100)
+	ctorCnt := 0
+	ctor := func(ctx context.Context, _ interface{}) (interface{}, error) {
+		ctorCnt++
+		return "ok", nil
+	}
+	for i := 0; i < 2; i++ {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			_, err := m.LoadOrCtor(ctx, "_", ctor)
+			if err != nil {
+				t.Fatal("LoadOrCtor error not nil")
+			}
+		})
+		time.Sleep(time.Second)
+	}
+	t.Parallel()
+	if ctorCnt != 2 {
+		t.Fatalf("i is %d", ctorCnt)
+	}
+}

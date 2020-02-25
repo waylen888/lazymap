@@ -72,12 +72,13 @@ func (m *Map) LoadOrCtor(ctx context.Context, key interface{}, fn ctorFunc) (int
 	}
 
 	e := new(entity)
-	e.ctx, e.cacenl = context.WithCancel(ctx)
+	// e.ctx only cancelled when entry deleted from Map
+	e.ctx, e.cacenl = context.WithCancel(context.Background())
 	e.wg.Add(1)
 	m.m[key] = e
 	m.mu.Unlock()
 
-	e.val, e.err = fn(e.ctx, key)
+	e.val, e.err = fn(ctx, key)
 
 	if e.err != nil {
 		m.mu.Lock()
