@@ -14,7 +14,7 @@ The persistent connection map, with initialized connect lazy loading method.
 func main() {
 	
   // Init with 10 seconds lifetime.
-	m := lazymap.New(time.Second * 10)
+	m := lazymap.New[string, net.Conn](time.Second * 10)
 
   // End of life.
 	m.OnDelete = func(key string, conn net.Conn) {
