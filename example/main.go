@@ -12,14 +12,12 @@ import (
 func main() {
 
 	// Init with 10 seconds lifetime.
-	m := lazymap.New(time.Second * 10)
+	m := lazymap.New[string, net.Conn](time.Second * 10)
 
 	// End of life.
-	m.OnDelete = func(key, value interface{}) {
+	m.OnDelete = func(key string, conn net.Conn) {
 		fmt.Printf("Close conn %v\n", key)
-		if conn, ok := value.(net.Conn); ok {
-			conn.Close()
-		}
+		conn.Close()
 	}
 
 	// Multiple goroutine get the net connection
@@ -32,7 +30,7 @@ func main() {
 				return
 			}
 			fmt.Printf("Write data %v\n", i)
-			_, err = v.(net.Conn).Write([]byte(fmt.Sprintf("%d\n", i)))
+			_, err = v.Write([]byte(fmt.Sprintf("%d\n", i)))
 			if err != nil {
 				m.Delete("localhost:8080")
 			}
@@ -42,8 +40,8 @@ func main() {
 	select {}
 }
 
-func constructor(ctx context.Context, key interface{}) (interface{}, error) {
-	host := key.(string)
+func constructor(ctx context.Context, key string) (net.Conn, error) {
+	host := key
 	fmt.Printf("Connect to %s\n", host)
 	d := net.Dialer{}
 	return d.DialContext(ctx, "tcp", host)

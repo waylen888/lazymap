@@ -9,23 +9,23 @@ import (
 
 // Map is a lazy loaded map.
 // If a key cannot get a value, it will call the lazy loading method to initialize
-type Map struct {
+type Map[K comparable, V any] struct {
 
 	// Everytime calling the LoadOrCtor method will reset the timer with Lifetime duration.
 	// If zero, means unlimit lifetime
 	Lifetime time.Duration
 
-	// When the value has been deleted, it will call the OnDelete method.
+	// Whenever the value be deleted, it will call the OnDelete method.
 	// You can do any cleanup actions.
-	OnDelete func(key interface{}, value interface{})
+	OnDelete func(key K, value V)
 
 	mu sync.Mutex
-	m  map[interface{}]*entity
+	m  map[K]*entity[V]
 }
 
-type entity struct {
+type entity[V any] struct {
 	wg     sync.WaitGroup
-	val    interface{}
+	val    V
 	err    error
 	timer  *time.Timer
 	ctx    context.Context
@@ -33,13 +33,13 @@ type entity struct {
 }
 
 // New returns a Map with lifetime duration.
-func New(lifetime time.Duration) *Map {
-	return &Map{
+func New[K comparable, V any](lifetime time.Duration) *Map[K, V] {
+	return &Map[K, V]{
 		Lifetime: lifetime,
 	}
 }
 
-type ctorFunc func(context.Context, interface{}) (interface{}, error)
+type ctorFunc[K comparable, V any] func(context.Context, K) (V, error)
 
 // ErrCtorNotProvided lazy loading constructor not provided error
 var ErrCtorNotProvided = errors.New("constructor not provided")
@@ -47,19 +47,19 @@ var ErrCtorNotProvided = errors.New("constructor not provided")
 // LoadOrCtor returns the value for the key if exist.
 // Otherwise, it will call the constructor and returns the its value.
 // If the constructor returns error, the value will not be stored in the cache.
-func (m *Map) LoadOrCtor(ctx context.Context, key interface{}, fn ctorFunc) (interface{}, error) {
-
+func (m *Map[K, V]) LoadOrCtor(ctx context.Context, key K, fn ctorFunc[K, V]) (V, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
+	var value V
 	if fn == nil {
-		return nil, ErrCtorNotProvided
+		return value, ErrCtorNotProvided
 	}
 
 	m.mu.Lock()
 	if m.m == nil {
-		m.m = make(map[interface{}]*entity)
+		m.m = make(map[K]*entity[V])
 	}
 
 	if e, hit := m.m[key]; hit {
@@ -71,7 +71,7 @@ func (m *Map) LoadOrCtor(ctx context.Context, key interface{}, fn ctorFunc) (int
 		return e.val, e.err
 	}
 
-	e := new(entity)
+	e := new(entity[V])
 	// e.ctx only cancelled when entry deleted from Map
 	e.ctx, e.cacenl = context.WithCancel(context.Background())
 	e.wg.Add(1)
@@ -94,7 +94,7 @@ func (m *Map) LoadOrCtor(ctx context.Context, key interface{}, fn ctorFunc) (int
 	return e.val, e.err
 }
 
-func (m *Map) observeEntry(key interface{}, e *entity) {
+func (m *Map[K, V]) observeEntry(key K, e *entity[V]) {
 	select {
 	case <-e.timer.C:
 		m.Delete(key)
@@ -104,7 +104,7 @@ func (m *Map) observeEntry(key interface{}, e *entity) {
 }
 
 // Delete delete the value for a key.
-func (m *Map) Delete(key interface{}) {
+func (m *Map[K, V]) Delete(key K) {
 	m.mu.Lock()
 
 	e, exist := m.m[key]

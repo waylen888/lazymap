@@ -11,13 +11,13 @@ import (
 )
 
 func Test_Zero(t *testing.T) {
-	var m lazymap.Map
-	m.LoadOrCtor(nil, nil, nil)
+	var m lazymap.Map[string, any]
+	m.LoadOrCtor(nil, "", nil)
 	m.Delete("_")
 }
 
 func Test_NilCtor(t *testing.T) {
-	m := lazymap.New(time.Second)
+	m := lazymap.New[string, any](time.Second)
 	o, err := m.LoadOrCtor(context.Background(), "_", nil)
 	if err != lazymap.ErrCtorNotProvided {
 		t.Fatalf("%v is not ErrCtorNotProvided", err)
@@ -28,23 +28,23 @@ func Test_NilCtor(t *testing.T) {
 }
 
 func Test_EndOfLifetime(t *testing.T) {
-	m := lazymap.New(time.Second)
-	m.OnDelete = func(_, ch interface{}) {
-		ch.(chan struct{}) <- struct{}{}
+	m := lazymap.New[string, chan struct{}](time.Second)
+	m.OnDelete = func(_ string, ch chan struct{}) {
+		ch <- struct{}{}
 	}
-	ch, _ := m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ interface{}) (interface{}, error) {
+	ch, _ := m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ string) (chan struct{}, error) {
 		return make(chan struct{}, 1), nil
 	})
 	select {
 	case <-time.After(time.Second * 5):
 		t.Fatal("OnDelete not be called")
-	case <-ch.(chan struct{}):
+	case <-ch:
 	}
 }
 
 func Test_DeleteValue(t *testing.T) {
-	m := lazymap.New(0)
-	val, _ := m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ interface{}) (interface{}, error) {
+	m := lazymap.New[string, string](0)
+	val, _ := m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ string) (string, error) {
 		return "value1", nil
 	})
 	if val != "value1" {
@@ -53,7 +53,7 @@ func Test_DeleteValue(t *testing.T) {
 
 	m.Delete("_")
 
-	val, _ = m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ interface{}) (interface{}, error) {
+	val, _ = m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ string) (string, error) {
 		return "value2", nil
 	})
 	if val != "value2" {
@@ -62,15 +62,15 @@ func Test_DeleteValue(t *testing.T) {
 }
 
 func Test_LoadError(t *testing.T) {
-	m := lazymap.New(0)
-	val, err := m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ interface{}) (interface{}, error) {
-		return nil, errors.New("some error")
+	m := lazymap.New[string, string](0)
+	val, err := m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ string) (string, error) {
+		return "", errors.New("some error")
 	})
 	if err.Error() != "some error" {
 		t.Fatalf("unexpected error %v", err)
 	}
 
-	val, err = m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ interface{}) (interface{}, error) {
+	val, err = m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ string) (string, error) {
 		return "ok", nil
 	})
 
@@ -80,8 +80,8 @@ func Test_LoadError(t *testing.T) {
 }
 
 func Test_MultipleLoad(t *testing.T) {
-	m := lazymap.New(time.Second * 5)
-	ctor := func(ctx context.Context, _ interface{}) (interface{}, error) {
+	m := lazymap.New[string, string](time.Second * 5)
+	ctor := func(ctx context.Context, _ string) (string, error) {
 		return "ok", nil
 	}
 	for i := 0; i < 10; i++ {
@@ -99,9 +99,9 @@ func Test_MultipleLoad(t *testing.T) {
 }
 
 func Test_DeadlineExceeded(t *testing.T) {
-	m := lazymap.New(time.Millisecond * 100)
+	m := lazymap.New[string, string](time.Millisecond * 100)
 	ctorCnt := 0
-	ctor := func(ctx context.Context, _ interface{}) (interface{}, error) {
+	ctor := func(ctx context.Context, _ string) (string, error) {
 		ctorCnt++
 		return "ok", nil
 	}
