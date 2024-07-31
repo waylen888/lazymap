@@ -8,11 +8,11 @@ import (
 )
 
 // Map is a lazy loaded map.
-// If a key cannot get a value, it will call the lazy loading method to initialize
+// If a key doesn't have a value, it will call the lazy loading method to initialize one.
 type Map[K comparable, V any] struct {
 
-	// Everytime calling the LoadOrCtor method will reset the timer with Lifetime duration.
-	// If zero, means unlimit lifetime
+	// Every time the LoadOrCtor method is called, it will reset the timer with the Lifetime duration.
+	// If zero, it means unlimited lifetime.
 	Lifetime time.Duration
 
 	// Whenever the value be deleted, it will call the OnDelete method.
@@ -44,9 +44,9 @@ type ctorFunc[K comparable, V any] func(context.Context, K) (V, error)
 // ErrCtorNotProvided lazy loading constructor not provided error
 var ErrCtorNotProvided = errors.New("constructor not provided")
 
-// LoadOrCtor returns the value for the key if exist.
-// Otherwise, it will call the constructor and returns the its value.
-// If the constructor returns error, the value will not be stored in the cache.
+// LoadOrCtor returns the value for the key if it exists.
+// Otherwise, it will call the constructor and return its value.
+// If the constructor returns an error, the value will not be stored in the cache.
 func (m *Map[K, V]) LoadOrCtor(ctx context.Context, key K, fn ctorFunc[K, V]) (V, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -103,7 +103,7 @@ func (m *Map[K, V]) observeEntry(key K, e *entity[V]) {
 	e.timer.Stop()
 }
 
-// Delete delete the value for a key.
+// Delete deletes the value for a key.
 func (m *Map[K, V]) Delete(key K) {
 	m.mu.Lock()
 
