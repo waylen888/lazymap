@@ -29,7 +29,7 @@ type entity[V any] struct {
 	err    error
 	timer  *time.Timer
 	ctx    context.Context
-	cacenl context.CancelFunc
+	cancel context.CancelFunc
 }
 
 // New returns a Map with lifetime duration.
@@ -73,7 +73,7 @@ func (m *Map[K, V]) LoadOrCtor(ctx context.Context, key K, fn ctorFunc[K, V]) (V
 
 	e := new(entity[V])
 	// e.ctx only cancelled when entry deleted from Map
-	e.ctx, e.cacenl = context.WithCancel(context.Background())
+	e.ctx, e.cancel = context.WithCancel(context.Background())
 	e.wg.Add(1)
 	m.m[key] = e
 	m.mu.Unlock()
@@ -113,7 +113,7 @@ func (m *Map[K, V]) Delete(key K) {
 		return
 	}
 
-	e.cacenl()
+	e.cancel()
 	delete(m.m, key)
 	m.mu.Unlock()
 
