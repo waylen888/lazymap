@@ -12,8 +12,9 @@ and optionally expire after a period of inactivity.
 - **Single-flight** — concurrent requests for the same missing key run the
   constructor once and share the result.
 - **Lifetime / TTL** — entries can expire after a configurable idle duration.
-- **Cleanup hook** — `OnDelete` fires exactly once per value (on expiry or
-  explicit delete) so you can release the underlying resource.
+- **Capacity / LRU** — an optional bound evicts the least-recently-used entry.
+- **Cleanup hook** — `OnDelete` fires exactly once per value (on expiry,
+  capacity eviction or explicit delete) so you can release the resource.
 - **Generic & zero-dependency** — `Map[K comparable, V any]`, standard library
   only.
 
@@ -71,15 +72,23 @@ func main() {
 
 | Method | Description |
 | --- | --- |
-| `New[K, V](lifetime time.Duration) *Map[K, V]` | Create a map; zero lifetime disables expiry. |
+| `New[K, V](lifetime time.Duration) *Map[K, V]` | Create a map; zero lifetime disables expiry. (`Capacity`/`OnDelete` are set as fields.) |
 | `LoadOrCtor(ctx, key, fn) (V, error)` | Return the cached value or construct it. Single-flight; failed constructions are not cached. |
 | `Load(key) (V, bool)` | Return the value if present (no construction); resets its lifetime. |
 | `Delete(key) bool` | Remove an entry and run `OnDelete`; reports whether it existed. |
 | `Len() int` | Number of registered entries. |
 | `Range(func(K, V) bool)` | Iterate a snapshot of entries; return `false` to stop. |
 
-Configure behaviour with the exported fields `Lifetime` and `OnDelete` before
-first use.
+Configure behaviour with the exported fields `Lifetime`, `Capacity` and
+`OnDelete` before first use:
+
+```go
+m := &lazymap.Map[string, net.Conn]{
+	Lifetime: 10 * time.Second, // evict after 10s idle
+	Capacity: 100,              // keep at most 100 connections (LRU)
+	OnDelete: func(addr string, c net.Conn) { c.Close() },
+}
+```
 
 ## Semantics & guarantees
 
@@ -92,6 +101,9 @@ first use.
   leaked, and `OnDelete` never receives a zero value.
 - TTL expiry is best-effort: a value may be returned just as its lifetime
   elapses. Reset happens on every `LoadOrCtor` and `Load`.
+- `Capacity` is a soft bound with respect to in-flight constructions: an entry
+  whose constructor is still running is never evicted, so concurrent loads may
+  briefly exceed `Capacity`. Once they complete, the bound is exact.
 
 ## Development
 

@@ -172,6 +172,70 @@ func Test_FailedConstructionNotCachedNoOnDelete(t *testing.T) {
 	}
 }
 
+func Test_CapacityEvictsLRU(t *testing.T) {
+	var mu sync.Mutex
+	var evicted []int
+	m := &lazymap.Map[int, int]{Capacity: 3}
+	m.OnDelete = func(_ int, v int) {
+		mu.Lock()
+		evicted = append(evicted, v)
+		mu.Unlock()
+	}
+	ctor := func(_ context.Context, k int) (int, error) { return k, nil }
+
+	// Fill 0,1,2.
+	for k := 0; k < 3; k++ {
+		m.LoadOrCtor(context.Background(), k, ctor)
+	}
+	// Touch 0 so 1 becomes the least-recently-used.
+	if _, ok := m.Load(0); !ok {
+		t.Fatal("Load(0) missing")
+	}
+	// Insert 3 -> evicts 1.
+	m.LoadOrCtor(context.Background(), 3, ctor)
+
+	if n := m.Len(); n != 3 {
+		t.Fatalf("Len = %d, want 3", n)
+	}
+	if _, ok := m.Load(1); ok {
+		t.Fatal("key 1 should have been evicted")
+	}
+	for _, k := range []int{0, 2, 3} {
+		if _, ok := m.Load(k); !ok {
+			t.Fatalf("key %d should still be present", k)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(evicted) != 1 || evicted[0] != 1 {
+		t.Fatalf("evicted = %v, want [1]", evicted)
+	}
+}
+
+func Test_CapacityConcurrentBounded(t *testing.T) {
+	const capacity = 16
+	m := &lazymap.Map[int, int]{Capacity: capacity}
+	m.OnDelete = func(int, int) {}
+	ctor := func(_ context.Context, k int) (int, error) { return k, nil }
+
+	var wg sync.WaitGroup
+	for g := 0; g < 32; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < 5000; i++ {
+				m.LoadOrCtor(context.Background(), (g*5000+i)%256, ctor)
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	// All constructions are finished, so the soft bound is now exact.
+	if n := m.Len(); n != capacity {
+		t.Fatalf("Len = %d, want %d", n, capacity)
+	}
+}
+
 func BenchmarkLoadOrCtor_Hit(b *testing.B) {
 	m := lazymap.New[string, int](0)
 	ctor := func(context.Context, string) (int, error) { return 42, nil }

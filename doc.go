@@ -6,13 +6,15 @@
 // concurrent callers for the same key block and share the result. Successful
 // values are cached; failed constructions are not.
 //
-// # Lifetime
+// # Lifetime and capacity
 //
 // A Map created with a non-zero lifetime evicts entries that have not been
 // accessed for that duration. Each LoadOrCtor and Load resets the entry's
-// timer. On eviction — or on an explicit Delete — the OnDelete hook (if set) is
-// invoked so the caller can release the underlying resource. OnDelete fires
-// exactly once per stored value and never for a failed construction.
+// timer. A non-zero Capacity additionally caps the number of entries, evicting
+// the least-recently-used one when exceeded. On any eviction — or on an explicit
+// Delete — the OnDelete hook (if set) is invoked so the caller can release the
+// underlying resource. OnDelete fires exactly once per stored value and never
+// for a failed construction.
 //
 // # Example
 //
