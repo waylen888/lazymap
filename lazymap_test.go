@@ -64,17 +64,19 @@ func Test_DeleteValue(t *testing.T) {
 
 func Test_LoadError(t *testing.T) {
 	m := lazymap.New[string, string](0)
-	val, err := m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ string) (string, error) {
+	_, err := m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ string) (string, error) {
 		return "", errors.New("some error")
 	})
-	if err.Error() != "some error" {
+	if err == nil || err.Error() != "some error" {
 		t.Fatalf("unexpected error %v", err)
 	}
 
-	val, err = m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ string) (string, error) {
+	val, err := m.LoadOrCtor(context.Background(), "_", func(ctx context.Context, _ string) (string, error) {
 		return "ok", nil
 	})
-
+	if err != nil {
+		t.Fatalf("unexpected error %v", err)
+	}
 	if val != "ok" {
 		t.Fatalf("unexpected val %v", val)
 	}

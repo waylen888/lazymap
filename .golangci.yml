@@ -12,6 +12,14 @@ linters:
     - revive
     - gocritic
 
+linters-settings:
+  revive:
+    rules:
+      # Callback signatures (e.g. constructors) must keep their full parameter
+      # list for readability even when a parameter is unused.
+      - name: unused-parameter
+        disabled: true
+
 issues:
   exclude-rules:
     # Example and test code intentionally ignores constructor return values.
