@@ -76,6 +76,7 @@ func main() {
 | `LoadOrCtor(ctx, key, fn) (V, error)` | Return the cached value or construct it. Single-flight; failed constructions are not cached. |
 | `Load(key) (V, bool)` | Return the value if present (no construction); resets its lifetime. |
 | `Delete(key) bool` | Remove an entry and run `OnDelete`; reports whether it existed. |
+| `DeleteIf(key, pred) bool` | Remove a constructed entry only if `pred(currentValue)` holds — evict "your" instance without racing a concurrent rebuild. |
 | `Len() int` | Number of registered entries. |
 | `Range(func(K, V) bool)` | Iterate a snapshot of entries; return `false` to stop. |
 
@@ -104,6 +105,19 @@ m := &lazymap.Map[string, net.Conn]{
 - `Capacity` is a soft bound with respect to in-flight constructions: an entry
   whose constructor is still running is never evicted, so concurrent loads may
   briefly exceed `Capacity`. Once they complete, the bound is exact.
+- `DeleteIf` evaluates its predicate under the lock against the value stored at
+  that instant, so it removes only the instance you mean. It never matches an
+  in-flight entry; its predicate must be a cheap, pure check that does not call
+  back into the `Map`. Typical use in a pool:
+
+  ```go
+  cli, err := pool.LoadOrCtor(ctx, key, ctor)
+  if err == nil {
+      if _, err = cli.Send(req); err != nil {
+          pool.DeleteIf(key, func(cur *Client) bool { return cur == cli })
+      }
+  }
+  ```
 
 ## Development
 

@@ -236,6 +236,141 @@ func Test_CapacityConcurrentBounded(t *testing.T) {
 	}
 }
 
+func Test_DeleteIf_MatchAndMismatch(t *testing.T) {
+	var mu sync.Mutex
+	var released []*int
+	m := lazymap.New[string, *int](0)
+	m.OnDelete = func(_ string, v *int) {
+		mu.Lock()
+		released = append(released, v)
+		mu.Unlock()
+	}
+
+	ctorFor := func(p *int) lazymap.Constructor[string, *int] {
+		return func(context.Context, string) (*int, error) { return p, nil }
+	}
+
+	v1 := new(int)
+	got, _ := m.LoadOrCtor(context.Background(), "k", ctorFor(v1))
+	if got != v1 {
+		t.Fatal("unexpected v1")
+	}
+
+	// Deleting a different identity must not touch the stored value.
+	other := new(int)
+	if m.DeleteIf("k", func(cur *int) bool { return cur == other }) {
+		t.Fatal("DeleteIf removed an entry whose value did not match")
+	}
+	if _, ok := m.Load("k"); !ok {
+		t.Fatal("entry wrongly removed")
+	}
+
+	// Deleting by the real identity must remove it and fire OnDelete once.
+	if !m.DeleteIf("k", func(cur *int) bool { return cur == v1 }) {
+		t.Fatal("DeleteIf failed to remove the matching entry")
+	}
+	if _, ok := m.Load("k"); ok {
+		t.Fatal("entry not removed")
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(released) != 1 || released[0] != v1 {
+		t.Fatalf("OnDelete = %v, want exactly [v1]", released)
+	}
+}
+
+// Test_DeleteIf_NotFooledByRebuild reproduces the churn race the API exists to
+// prevent: a stale holder of v1 must not delete the rebuilt v2.
+func Test_DeleteIf_NotFooledByRebuild(t *testing.T) {
+	var onDelete atomic.Int64
+	m := lazymap.New[string, *int](0)
+	m.OnDelete = func(string, *int) { onDelete.Add(1) }
+
+	v1 := new(int)
+	v2 := new(int)
+
+	m.LoadOrCtor(context.Background(), "k", func(context.Context, string) (*int, error) { return v1, nil })
+	// v1 breaks: an owner removes it...
+	if !m.DeleteIf("k", func(cur *int) bool { return cur == v1 }) {
+		t.Fatal("first DeleteIf should have removed v1")
+	}
+	// ...and a healthy v2 is rebuilt under the same key.
+	m.LoadOrCtor(context.Background(), "k", func(context.Context, string) (*int, error) { return v2, nil })
+
+	// A late holder of v1 tries to evict it again — must be a no-op on v2.
+	if m.DeleteIf("k", func(cur *int) bool { return cur == v1 }) {
+		t.Fatal("stale DeleteIf must not remove the rebuilt value")
+	}
+	if got, ok := m.Load("k"); !ok || got != v2 {
+		t.Fatalf("v2 should remain, got %v ok=%v", got, ok)
+	}
+	if n := onDelete.Load(); n != 1 {
+		t.Fatalf("OnDelete fired %d times, want 1 (only v1)", n)
+	}
+}
+
+func Test_DeleteIf_InFlightNotMatched(t *testing.T) {
+	var onDelete atomic.Int64
+	m := lazymap.New[string, int](0)
+	m.OnDelete = func(string, int) { onDelete.Add(1) }
+
+	if m.DeleteIf("missing", nil) {
+		t.Fatal("DeleteIf on a missing key returned true")
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		m.LoadOrCtor(context.Background(), "k", func(context.Context, string) (int, error) {
+			close(started)
+			<-release
+			return 7, nil
+		})
+		close(done)
+	}()
+	<-started // constructor in flight; e.val is still the zero value
+
+	predCalled := false
+	if m.DeleteIf("k", func(int) bool { predCalled = true; return true }) {
+		t.Fatal("DeleteIf matched an in-flight entry")
+	}
+	if predCalled {
+		t.Fatal("pred must not run against an in-flight (zero) value")
+	}
+
+	close(release)
+	<-done
+	if n := onDelete.Load(); n != 0 {
+		t.Fatalf("OnDelete fired %d times for an untouched in-flight entry", n)
+	}
+	// Once ready it can be deleted.
+	if !m.DeleteIf("k", nil) {
+		t.Fatal("DeleteIf(nil) failed on a ready entry")
+	}
+}
+
+func Test_DeleteIf_CapacityConsistent(t *testing.T) {
+	m := &lazymap.Map[int, int]{Capacity: 4}
+	m.OnDelete = func(int, int) {}
+	ctor := func(_ context.Context, k int) (int, error) { return k, nil }
+
+	for k := 0; k < 4; k++ {
+		m.LoadOrCtor(context.Background(), k, ctor)
+	}
+	if !m.DeleteIf(1, func(v int) bool { return v == 1 }) {
+		t.Fatal("DeleteIf(1) failed")
+	}
+	// Reinserting beyond capacity must still evict cleanly via the LRU list.
+	for k := 4; k < 8; k++ {
+		m.LoadOrCtor(context.Background(), k, ctor)
+	}
+	if n := m.Len(); n != 4 {
+		t.Fatalf("Len = %d, want 4", n)
+	}
+}
+
 func BenchmarkLoadOrCtor_Hit(b *testing.B) {
 	m := lazymap.New[string, int](0)
 	ctor := func(context.Context, string) (int, error) { return 42, nil }

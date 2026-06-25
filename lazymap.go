@@ -236,6 +236,52 @@ func (m *Map[K, V]) Delete(key K) bool {
 	return m.delete(key, nil)
 }
 
+// DeleteIf removes the entry for key only if it has been fully constructed and
+// pred returns true for its current value, reporting whether it was deleted.
+//
+// pred is evaluated while the internal lock is held, against the value stored
+// under key at that instant. This lets a caller evict exactly "their" instance
+// without racing a concurrent rebuild: by the time a replacement value has been
+// stored it is a different value, so a predicate such as
+//
+//	m.DeleteIf(key, func(cur *Client) bool { return cur == mine })
+//
+// no longer matches and the fresh value is left in place. A nil pred deletes
+// unconditionally (subject to the entry being ready).
+//
+// An entry whose constructor is still running is never matched — its value does
+// not yet exist — and DeleteIf returns false. To remove such an entry regardless
+// of construction state, use Delete. pred must be a cheap, pure check and must
+// not call back into the Map, or it will deadlock. OnDelete, if set, runs after
+// the lock is released.
+func (m *Map[K, V]) DeleteIf(key K, pred func(value V) bool) bool {
+	m.mu.Lock()
+	e, ok := m.m[key]
+	if !ok || !e.ready {
+		m.mu.Unlock()
+		return false
+	}
+	if pred != nil && !pred(e.val) {
+		m.mu.Unlock()
+		return false
+	}
+	delete(m.m, key)
+	if m.Capacity > 0 {
+		m.lruRemove(e)
+	}
+	e.deleted = true
+	if e.timer != nil {
+		e.timer.Stop()
+	}
+	m.mu.Unlock()
+
+	// A ready entry has a valid value and a nil error, so no wait is needed.
+	if m.OnDelete != nil {
+		m.OnDelete(key, e.val)
+	}
+	return true
+}
+
 // delete removes key. When want is non-nil the entry is removed only if it is
 // the exact one want points to; the lifetime timer uses this to avoid evicting
 // a newer entry that replaced an expired one for the same key.
