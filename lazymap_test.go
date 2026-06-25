@@ -12,6 +12,7 @@ import (
 
 func Test_Zero(t *testing.T) {
 	var m lazymap.Map[string, any]
+	//nolint:staticcheck // intentionally passing a nil context to verify it is tolerated
 	m.LoadOrCtor(nil, "", nil)
 	m.Delete("_")
 }
